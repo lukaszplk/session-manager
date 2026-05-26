@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "session-manager"
-version = "0.1.0"
+version = "1.0.0"
 description = "Lightweight timestamped session-directory manager for data-processing scripts"
 readme = "README.md"
 license = { file = "LICENSE" }
