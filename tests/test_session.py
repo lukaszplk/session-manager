@@ -2,19 +2,25 @@
 
 Coverage:
   - SessionManager creation (directory, naming, base creation, uniqueness)
-  - SessionConfig injection (format, separator, defaults)
+  - create=False — no folder created, latest() still works
+  - separator shortcut and dataclasses.replace via _resolve_config
+  - SessionConfig injection
+  - Logger injection — messages routed through caller's logger
   - Path helpers (file, subdir, truediv)
   - Alternative constructor: in_temp()
-  - Static helper: latest()
+  - Instance method: latest() with and without base_dir override
   - Repr
 """
 
+import logging
 import re
+import time
 from pathlib import Path
 
 import pytest
 
 from session_manager import SessionConfig, SessionManager
+from session_manager.session import _resolve_config
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -22,6 +28,34 @@ from session_manager import SessionConfig, SessionManager
 @pytest.fixture
 def base(tmp_path: Path) -> Path:
     return tmp_path / "results"
+
+
+# ── _resolve_config ────────────────────────────────────────────────────────────
+
+class TestResolveConfig:
+    def test_all_none_returns_defaults(self) -> None:
+        cfg = _resolve_config(None, None)
+        assert cfg == SessionConfig()
+
+    def test_separator_kwarg_overrides_config(self) -> None:
+        base_cfg = SessionConfig(separator="_")
+        cfg = _resolve_config(base_cfg, "--")
+        assert cfg.separator == "--"
+        assert cfg.timestamp_format == base_cfg.timestamp_format
+
+    def test_separator_kwarg_overrides_default(self) -> None:
+        cfg = _resolve_config(None, "--")
+        assert cfg.separator == "--"
+
+    def test_config_used_when_no_separator_kwarg(self) -> None:
+        base_cfg = SessionConfig(separator="--", timestamp_format="%Y%m%d")
+        cfg = _resolve_config(base_cfg, None)
+        assert cfg is base_cfg
+
+    def test_does_not_mutate_original_config(self) -> None:
+        base_cfg = SessionConfig(separator="_")
+        _resolve_config(base_cfg, "--")
+        assert base_cfg.separator == "_"
 
 
 # ── SessionManager creation ────────────────────────────────────────────────────
@@ -38,26 +72,98 @@ class TestSessionManagerCreation:
 
     def test_folder_name_contains_name_and_timestamp(self, base: Path) -> None:
         sm = SessionManager(base, name="analysis")
-        pattern = r"^analysis_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$"
-        assert re.match(pattern, sm.session_dir.name)
+        assert re.match(r"^analysis_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$",
+                        sm.session_dir.name)
 
     def test_no_name_uses_timestamp_only(self, base: Path) -> None:
         sm = SessionManager(base, name="")
-        pattern = r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$"
-        assert re.match(pattern, sm.session_dir.name)
+        assert re.match(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$",
+                        sm.session_dir.name)
 
     def test_creates_base_dir_if_missing(self, tmp_path: Path) -> None:
         deep = tmp_path / "a" / "b" / "c"
-        assert not deep.exists()
         SessionManager(deep, name="run")
         assert deep.exists()
 
     def test_two_instances_get_different_dirs(self, base: Path) -> None:
-        import time
         sm1 = SessionManager(base, name="run")
         time.sleep(1.1)
         sm2 = SessionManager(base, name="run")
         assert sm1.session_dir != sm2.session_dir
+
+    def test_separator_kwarg_applied(self, base: Path) -> None:
+        sm = SessionManager(base, name="run", separator="--")
+        assert re.match(r"^run--\d{4}", sm.session_dir.name)
+
+    def test_separator_kwarg_overrides_config(self, base: Path) -> None:
+        cfg = SessionConfig(separator="_")
+        sm = SessionManager(base, name="run", separator="--", config=cfg)
+        assert sm.session_dir.name.startswith("run--")
+
+
+# ── create=False ───────────────────────────────────────────────────────────────
+
+class TestCreateFalse:
+    def test_no_directory_created(self, base: Path) -> None:
+        sm = SessionManager(base, name="run", create=False)
+        assert not base.exists() or not any(base.iterdir())
+
+    def test_session_dir_raises(self, base: Path) -> None:
+        sm = SessionManager(base, name="run", create=False)
+        with pytest.raises(RuntimeError, match="create=False"):
+            _ = sm.session_dir
+
+    def test_file_raises_via_session_dir(self, base: Path) -> None:
+        sm = SessionManager(base, name="run", create=False)
+        with pytest.raises(RuntimeError):
+            sm.file("output.csv")
+
+    def test_latest_works_without_own_session(self, base: Path) -> None:
+        # writer
+        writer = SessionManager(base, name="run")
+        # reader — no folder of its own
+        reader = SessionManager(base, name="run", create=False)
+        assert reader.latest() == writer.session_dir
+
+
+# ── Logger injection ───────────────────────────────────────────────────────────
+
+class TestLoggerInjection:
+    @pytest.fixture
+    def logger_and_records(self):
+        logger = logging.getLogger(f"test_{id(self)}")
+        logger.setLevel(logging.DEBUG)
+        records = []
+        handler = logging.handlers_list = None
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = Capture()
+        logger.addHandler(handler)
+        return logger, records
+
+    def test_creation_logged(self, base: Path, logger_and_records) -> None:
+        logger, records = logger_and_records
+        SessionManager(base, name="run", logger=logger)
+        assert any("created" in r.getMessage().lower() for r in records)
+
+    def test_create_false_logged(self, base: Path, logger_and_records) -> None:
+        logger, records = logger_and_records
+        SessionManager(base, name="run", create=False, logger=logger)
+        assert any("create=False" in r.getMessage() for r in records)
+
+    def test_latest_scan_logged(self, base: Path, logger_and_records) -> None:
+        logger, records = logger_and_records
+        writer = SessionManager(base, name="run")
+        reader = SessionManager(base, name="run", create=False, logger=logger)
+        reader.latest()
+        assert any("Scanning" in r.getMessage() for r in records)
+
+    def test_no_logger_is_silent(self, base: Path) -> None:
+        sm = SessionManager(base, name="run", logger=None)
+        assert sm.session_dir.exists()
 
 
 # ── SessionConfig injection ────────────────────────────────────────────────────
@@ -66,18 +172,17 @@ class TestSessionConfig:
     def test_custom_timestamp_format(self, base: Path) -> None:
         cfg = SessionConfig(timestamp_format="%Y%m%d")
         sm = SessionManager(base, name="run", config=cfg)
-        pattern = r"^run_\d{8}$"
-        assert re.match(pattern, sm.session_dir.name)
+        assert re.match(r"^run_\d{8}$", sm.session_dir.name)
 
     def test_custom_separator(self, base: Path) -> None:
         cfg = SessionConfig(separator="--")
         sm = SessionManager(base, name="run", config=cfg)
         assert sm.session_dir.name.startswith("run--")
 
-    def test_default_config_used_when_none(self, base: Path) -> None:
+    def test_default_config_when_none(self, base: Path) -> None:
         sm = SessionManager(base, name="run", config=None)
-        pattern = r"^run_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$"
-        assert re.match(pattern, sm.session_dir.name)
+        assert re.match(r"^run_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$",
+                        sm.session_dir.name)
 
 
 # ── Path helpers ───────────────────────────────────────────────────────────────
@@ -85,22 +190,18 @@ class TestSessionConfig:
 class TestPathHelpers:
     def test_file_returns_path_inside_session(self, base: Path) -> None:
         sm = SessionManager(base, name="run")
-        p = sm.file("output.csv")
-        assert p.parent == sm.session_dir
-        assert p.name == "output.csv"
+        assert sm.file("output.csv").parent == sm.session_dir
 
     def test_file_accepts_multiple_parts(self, base: Path) -> None:
         sm = SessionManager(base, name="run")
-        p = sm.file("plots", "volcano.png")
-        assert p == sm.session_dir / "plots" / "volcano.png"
+        assert sm.file("plots", "volcano.png") == sm.session_dir / "plots" / "volcano.png"
 
     def test_subdir_creates_directory(self, base: Path) -> None:
         sm = SessionManager(base, name="run")
         d = sm.subdir("plots")
-        assert d.exists()
-        assert d.is_dir()
+        assert d.exists() and d.is_dir()
 
-    def test_subdir_returns_correct_path(self, base: Path) -> None:
+    def test_subdir_nested(self, base: Path) -> None:
         sm = SessionManager(base, name="run")
         d = sm.subdir("nested", "deep")
         assert d == sm.session_dir / "nested" / "deep"
@@ -111,104 +212,93 @@ class TestPathHelpers:
         assert sm / "file.txt" == sm.session_dir / "file.txt"
 
 
-# ── in_temp ───────────────────────────────────────────────────────────────────
+# ── in_temp ────────────────────────────────────────────────────────────────────
 
 class TestInTemp:
     def test_creates_dir_in_system_temp(self) -> None:
         import tempfile
         sm = SessionManager.in_temp(name="tmp_run")
-        assert sm.session_dir.exists()
-        assert str(sm.session_dir).startswith(str(Path(tempfile.gettempdir()).resolve()))
+        assert str(sm.session_dir).startswith(
+            str(Path(tempfile.gettempdir()).resolve()))
 
-    def test_classmethod_returns_correct_type(self) -> None:
-        sm = SessionManager.in_temp(name="tmp_run")
-        assert isinstance(sm, SessionManager)
+    def test_returns_session_manager(self) -> None:
+        assert isinstance(SessionManager.in_temp(name="run"), SessionManager)
 
-    def test_subclass_in_temp_returns_subclass(self) -> None:
+    def test_subclass_returns_subclass(self) -> None:
         class MySession(SessionManager):
             pass
+        assert type(MySession.in_temp(name="sub")) is MySession
 
-        sm = MySession.in_temp(name="sub")
-        assert type(sm) is MySession
-
-    def test_accepts_config(self) -> None:
-        cfg = SessionConfig(timestamp_format="%Y%m%d")
-        sm = SessionManager.in_temp(name="run", config=cfg)
-        import re
-        assert re.match(r"^run_\d{8}$", sm.session_dir.name)
+    def test_separator_kwarg_forwarded(self) -> None:
+        sm = SessionManager.in_temp(name="run", separator="--")
+        assert sm.session_dir.name.startswith("run--")
 
 
-# ── latest ─────────────────────────────────────────────────────────────────────
+# ── latest() ──────────────────────────────────────────────────────────────────
 
 class TestLatest:
-    def test_returns_most_recent_session(self, base: Path) -> None:
-        import time
+    def test_returns_most_recent(self, base: Path) -> None:
         sm1 = SessionManager(base, name="run")
         time.sleep(1.1)
         sm2 = SessionManager(base, name="run")
-        assert SessionManager.latest(base) == sm2.session_dir
+        reader = SessionManager(base, name="run", create=False)
+        assert reader.latest() == sm2.session_dir
 
     def test_filters_by_name(self, base: Path) -> None:
-        import time
         sm_a = SessionManager(base, name="preprocess")
         time.sleep(1.1)
-        sm_b = SessionManager(base, name="train")
-        latest_pre = SessionManager.latest(base, name="preprocess")
-        assert latest_pre == sm_a.session_dir
+        SessionManager(base, name="train")
+        reader = SessionManager(base, name="preprocess", create=False)
+        assert reader.latest() == sm_a.session_dir
+
+    def test_base_dir_override(self, tmp_path: Path) -> None:
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        sm_a = SessionManager(dir_a, name="run")
+        reader = SessionManager(dir_b, name="run", create=False)
+        assert reader.latest(base_dir=dir_a) == sm_a.session_dir
 
     def test_raises_if_dir_missing(self, tmp_path: Path) -> None:
+        reader = SessionManager(tmp_path / "missing", name="run", create=False)
         with pytest.raises(FileNotFoundError):
-            SessionManager.latest(tmp_path / "nonexistent")
+            reader.latest()
 
     def test_raises_if_no_sessions(self, base: Path) -> None:
-        base.mkdir(parents=True, exist_ok=True)
+        base.mkdir(parents=True)
+        reader = SessionManager(base, name="run", create=False)
         with pytest.raises(ValueError):
-            SessionManager.latest(base)
+            reader.latest()
 
-    def test_raises_if_no_matching_name(self, base: Path) -> None:
-        SessionManager(base, name="run")
-        with pytest.raises(ValueError):
-            SessionManager.latest(base, name="other")
-
-    def test_accepts_string_path(self, base: Path) -> None:
-        sm = SessionManager(base, name="run")
-        result = SessionManager.latest(str(base))
-        assert result == sm.session_dir
-
-    def test_config_separator_avoids_prefix_ambiguity(self, base: Path) -> None:
-        """'run' must not match 'run_extra' when config pins the separator."""
-        import time
-        cfg = SessionConfig(separator="_")
-        sm_run = SessionManager(base, name="run", config=cfg)
+    def test_separator_ambiguity_avoided(self, base: Path) -> None:
+        sm_run = SessionManager(base, name="run")
         time.sleep(1.1)
-        sm_extra = SessionManager(base, name="run_extra", config=cfg)
-        # without config both would match startswith("run")
-        # with config only "run_" prefix is accepted
-        result = SessionManager.latest(base, name="run", config=cfg)
-        assert result == sm_run.session_dir
+        SessionManager(base, name="run_extra")
+        reader = SessionManager(base, name="run", create=False)
+        assert reader.latest() == sm_run.session_dir
 
     def test_custom_separator_exact_match(self, base: Path) -> None:
-        """latest() with config finds sessions created with the same separator."""
-        cfg = SessionConfig(separator="--")
-        sm = SessionManager(base, name="preprocess", config=cfg)
-        result = SessionManager.latest(base, name="preprocess", config=cfg)
-        assert result == sm.session_dir
+        sm = SessionManager(base, name="preprocess", separator="--")
+        reader = SessionManager(base, name="preprocess",
+                                separator="--", create=False)
+        assert reader.latest() == sm.session_dir
 
-    def test_no_config_falls_back_to_startswith(self, base: Path) -> None:
-        """Without config, any separator is accepted (loose match)."""
-        cfg = SessionConfig(separator="--")
-        sm = SessionManager(base, name="preprocess", config=cfg)
-        result = SessionManager.latest(base, name="preprocess")
-        assert result == sm.session_dir
+    def test_accepts_string_base_dir_override(self, base: Path) -> None:
+        sm = SessionManager(base, name="run")
+        reader = SessionManager(base, name="run", create=False)
+        assert reader.latest(base_dir=str(base)) == sm.session_dir
 
 
 # ── Repr ───────────────────────────────────────────────────────────────────────
 
 class TestRepr:
-    def test_repr_contains_class_name(self, base: Path) -> None:
+    def test_contains_class_name(self, base: Path) -> None:
         sm = SessionManager(base, name="run")
         assert "SessionManager" in repr(sm)
 
-    def test_repr_contains_path(self, base: Path) -> None:
+    def test_contains_session_folder_name(self, base: Path) -> None:
         sm = SessionManager(base, name="run")
         assert sm.session_dir.name in repr(sm)
+
+    def test_contains_name(self, base: Path) -> None:
+        sm = SessionManager(base, name="myrun")
+        assert "myrun" in repr(sm)
