@@ -1,6 +1,7 @@
 # session-manager
 
 [![CI](https://github.com/lukaszplk/session-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/lukaszplk/session-manager/actions/workflows/ci.yml)
+[![Release](https://github.com/lukaszplk/session-manager/actions/workflows/release.yml/badge.svg)](https://github.com/lukaszplk/session-manager/actions/workflows/release.yml)
 
 Lightweight timestamped session-directory manager for data-processing scripts.
 
@@ -9,6 +10,10 @@ Each time your script runs it gets its own uniquely named folder — no overwrit
 ## Install
 
 ```bash
+# from PyPI (after first release)
+pip install session-manager
+
+# directly from GitHub (always latest)
 pip install git+https://github.com/lukaszplk/session-manager.git
 ```
 
@@ -180,9 +185,23 @@ sm = SessionManager(
 
 ---
 
-## Run tests
+## Development
 
 ```bash
-pip install pytest
+git clone https://github.com/lukaszplk/session-manager.git
+cd session-manager
+pip install -e ".[dev]"
 pytest
 ```
+
+Work on a feature branch, open a PR against `master` — CI runs automatically on the PR.
+
+## Releasing
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+This triggers the release workflow: runs tests, builds the package, then
+publishes to PyPI after manual approval in the `pypi` GitHub environment.
