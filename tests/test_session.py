@@ -175,6 +175,32 @@ class TestLatest:
         result = SessionManager.latest(str(base))
         assert result == sm.session_dir
 
+    def test_config_separator_avoids_prefix_ambiguity(self, base: Path) -> None:
+        """'run' must not match 'run_extra' when config pins the separator."""
+        import time
+        cfg = SessionConfig(separator="_")
+        sm_run = SessionManager(base, name="run", config=cfg)
+        time.sleep(1.1)
+        sm_extra = SessionManager(base, name="run_extra", config=cfg)
+        # without config both would match startswith("run")
+        # with config only "run_" prefix is accepted
+        result = SessionManager.latest(base, name="run", config=cfg)
+        assert result == sm_run.session_dir
+
+    def test_custom_separator_exact_match(self, base: Path) -> None:
+        """latest() with config finds sessions created with the same separator."""
+        cfg = SessionConfig(separator="--")
+        sm = SessionManager(base, name="preprocess", config=cfg)
+        result = SessionManager.latest(base, name="preprocess", config=cfg)
+        assert result == sm.session_dir
+
+    def test_no_config_falls_back_to_startswith(self, base: Path) -> None:
+        """Without config, any separator is accepted (loose match)."""
+        cfg = SessionConfig(separator="--")
+        sm = SessionManager(base, name="preprocess", config=cfg)
+        result = SessionManager.latest(base, name="preprocess")
+        assert result == sm.session_dir
+
 
 # ── Repr ───────────────────────────────────────────────────────────────────────
 

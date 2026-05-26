@@ -106,6 +106,7 @@ class SessionManager:
     def latest(
         sessions_dir: str | Path,
         name: Optional[str] = None,
+        config: Optional[SessionConfig] = None,
     ) -> Path:
         """Return the path of the most recently created session folder.
 
@@ -117,9 +118,15 @@ class SessionManager:
         Args:
             sessions_dir: Directory that contains session folders
                 (i.e. the *base_dir* passed when creating sessions).
-            name: Optional prefix filter.  Only folders whose name starts
-                with ``<name><any separator>`` are considered.
-                Pass ``None`` to consider all subdirectories.
+            name: Optional prefix filter.
+            config: Optional :class:`SessionConfig`.  When provided together
+                with *name*, the filter uses the exact
+                ``<name><separator>`` prefix (e.g. ``"run--"`` for
+                ``separator="--"``), avoiding false matches against folders
+                whose names merely *start with* the same string
+                (e.g. ``"run_extra_..."``) .  When *config* is ``None`` the
+                filter falls back to a plain ``startswith(name)`` check,
+                which works across all separators but is less precise.
 
         Returns:
             :class:`~pathlib.Path` pointing to the latest session folder.
@@ -130,11 +137,13 @@ class SessionManager:
 
         Example::
 
-            # Script A creates sessions under "results/"
-            sm = SessionManager("results", name="preprocess")
+            cfg = SessionConfig(separator="--")
 
-            # Script B always picks up the latest preprocess session
-            latest = SessionManager.latest("results", name="preprocess")
+            # Script A — writes with custom separator
+            sm = SessionManager("results", name="preprocess", config=cfg)
+
+            # Script B — exact match, no ambiguity
+            latest = SessionManager.latest("results", name="preprocess", config=cfg)
             df = pd.read_csv(latest / "output.csv")
         """
         base = Path(sessions_dir).resolve()
@@ -144,7 +153,15 @@ class SessionManager:
         candidates = [p for p in base.iterdir() if p.is_dir()]
 
         if name is not None:
-            candidates = [p for p in candidates if p.name.startswith(name)]
+            sep = config.separator if config is not None else None
+            if sep is not None:
+                # Require name+sep followed immediately by a digit (start of
+                # timestamp), so "run_" does not accidentally match "run_extra_".
+                import re as _re
+                pattern = _re.compile(r"^" + _re.escape(f"{name}{sep}") + r"\d")
+                candidates = [p for p in candidates if pattern.match(p.name)]
+            else:
+                candidates = [p for p in candidates if p.name.startswith(name)]
 
         if not candidates:
             qualifier = f" matching name={name!r}" if name else ""

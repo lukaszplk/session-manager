@@ -34,6 +34,10 @@ Works on Windows and Linux — all paths are `pathlib.Path` objects.
 
 ## Temp directory
 
+`in_temp` is a convenience constructor — identical to passing
+`Path(tempfile.gettempdir())` as `base_dir`, but without needing to import
+`tempfile` or know the OS-specific temp path.
+
 ```python
 sm = SessionManager.in_temp(name="scratch")
 # creates:  /tmp/scratch_2026-05-26_21-57-00/   (Linux/macOS)
@@ -50,6 +54,23 @@ df_clean.to_csv(sm.file("clean.csv"))
 # script_b.py — always picks up the most recent preprocess session
 latest = SessionManager.latest("results", name="preprocess")
 df = pd.read_csv(latest / "clean.csv")
+```
+
+### Separator-aware matching
+
+If you use a custom separator, pass the same `SessionConfig` to `latest()`.
+Without it, the filter uses a plain `startswith` which can match unintended
+names (e.g. `"run"` would also match `"run_extra_..."`).
+
+```python
+cfg = SessionConfig(separator="--")
+
+# writer
+sm = SessionManager("results", name="run", config=cfg)
+# folder: run--2026-05-26_22-08-00/
+
+# reader — exact match: "run--\d..." only, never "run--extra--..."
+latest = SessionManager.latest("results", name="run", config=cfg)
 ```
 
 ## Custom config
