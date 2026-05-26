@@ -1,4 +1,13 @@
-"""Tests for SessionManager and SessionConfig."""
+"""Tests for SessionManager and SessionConfig.
+
+Coverage:
+  - SessionManager creation (directory, naming, base creation, uniqueness)
+  - SessionConfig injection (format, separator, defaults)
+  - Path helpers (file, subdir, truediv)
+  - Alternative constructor: in_temp()
+  - Static helper: latest()
+  - Repr
+"""
 
 import re
 from pathlib import Path
@@ -100,6 +109,71 @@ class TestPathHelpers:
     def test_truediv_shorthand(self, base: Path) -> None:
         sm = SessionManager(base, name="run")
         assert sm / "file.txt" == sm.session_dir / "file.txt"
+
+
+# ── in_temp ───────────────────────────────────────────────────────────────────
+
+class TestInTemp:
+    def test_creates_dir_in_system_temp(self) -> None:
+        import tempfile
+        sm = SessionManager.in_temp(name="tmp_run")
+        assert sm.session_dir.exists()
+        assert str(sm.session_dir).startswith(str(Path(tempfile.gettempdir()).resolve()))
+
+    def test_classmethod_returns_correct_type(self) -> None:
+        sm = SessionManager.in_temp(name="tmp_run")
+        assert isinstance(sm, SessionManager)
+
+    def test_subclass_in_temp_returns_subclass(self) -> None:
+        class MySession(SessionManager):
+            pass
+
+        sm = MySession.in_temp(name="sub")
+        assert type(sm) is MySession
+
+    def test_accepts_config(self) -> None:
+        cfg = SessionConfig(timestamp_format="%Y%m%d")
+        sm = SessionManager.in_temp(name="run", config=cfg)
+        import re
+        assert re.match(r"^run_\d{8}$", sm.session_dir.name)
+
+
+# ── latest ─────────────────────────────────────────────────────────────────────
+
+class TestLatest:
+    def test_returns_most_recent_session(self, base: Path) -> None:
+        import time
+        sm1 = SessionManager(base, name="run")
+        time.sleep(1.1)
+        sm2 = SessionManager(base, name="run")
+        assert SessionManager.latest(base) == sm2.session_dir
+
+    def test_filters_by_name(self, base: Path) -> None:
+        import time
+        sm_a = SessionManager(base, name="preprocess")
+        time.sleep(1.1)
+        sm_b = SessionManager(base, name="train")
+        latest_pre = SessionManager.latest(base, name="preprocess")
+        assert latest_pre == sm_a.session_dir
+
+    def test_raises_if_dir_missing(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            SessionManager.latest(tmp_path / "nonexistent")
+
+    def test_raises_if_no_sessions(self, base: Path) -> None:
+        base.mkdir(parents=True, exist_ok=True)
+        with pytest.raises(ValueError):
+            SessionManager.latest(base)
+
+    def test_raises_if_no_matching_name(self, base: Path) -> None:
+        SessionManager(base, name="run")
+        with pytest.raises(ValueError):
+            SessionManager.latest(base, name="other")
+
+    def test_accepts_string_path(self, base: Path) -> None:
+        sm = SessionManager(base, name="run")
+        result = SessionManager.latest(str(base))
+        assert result == sm.session_dir
 
 
 # ── Repr ───────────────────────────────────────────────────────────────────────

@@ -30,6 +30,28 @@ fig2.savefig(plots_dir / "pca.png")
 fig3.savefig(sm / "overview.png")
 ```
 
+Works on Windows and Linux — all paths are `pathlib.Path` objects.
+
+## Temp directory
+
+```python
+sm = SessionManager.in_temp(name="scratch")
+# creates:  /tmp/scratch_2026-05-26_21-57-00/   (Linux/macOS)
+#        or %TEMP%\scratch_2026-05-26_21-57-00\ (Windows)
+```
+
+## Pipeline chaining — always pick the latest session
+
+```python
+# script_a.py — runs multiple times, each run creates a new session
+sm = SessionManager("results", name="preprocess")
+df_clean.to_csv(sm.file("clean.csv"))
+
+# script_b.py — always picks up the most recent preprocess session
+latest = SessionManager.latest("results", name="preprocess")
+df = pd.read_csv(latest / "clean.csv")
+```
+
 ## Custom config
 
 ```python
@@ -60,6 +82,8 @@ sm = SessionManager("results", name="run", config=cfg)
 | `file(*parts)` | `Path` | Path inside the session dir (not created) |
 | `subdir(*parts)` | `Path` | Subdirectory inside the session dir (created) |
 | `sm / "name"` | `Path` | Shorthand for `sm.file("name")` |
+| `SessionManager.in_temp(name, config)` | `SessionManager` | Alternative constructor using the system temp dir |
+| `SessionManager.latest(sessions_dir, name)` | `Path` | Path to the most recently created session folder |
 
 ## Run tests
 
