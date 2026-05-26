@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "session-manager"
+version = "0.1.0"
+description = "Lightweight timestamped session-directory manager for data-processing scripts"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["session", "data-processing", "reproducibility", "bioinformatics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/lukaszplk/session-manager"
+Repository = "https://github.com/lukaszplk/session-manager"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/session_manager"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
