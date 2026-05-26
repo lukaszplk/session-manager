@@ -196,15 +196,3 @@ pytest
 
 Work on a feature branch, open a PR against `master` — CI runs automatically on the PR.
 
-## Publishing a new version (maintainer)
-
-Bump the version in `pyproject.toml`, then:
-
-```bash
-git tag v1.1.0
-git push origin v1.1.0
-```
-
-This triggers the release workflow: runs tests, builds a `.whl`, then
-uploads it to PyPI after manual approval. Once done, users install the
-new version with `pip install --upgrade session-manager`.
