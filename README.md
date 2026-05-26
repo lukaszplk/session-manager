@@ -17,28 +17,27 @@ pip install git+https://github.com/lukaszplk/session-manager.git
 ```python
 from session_manager import SessionManager
 
-# start a new session — folder created immediately
 sm = SessionManager("results", name="rna_seq")
 # → results/rna_seq_2026-05-26_22-08-00/
 
 df.to_csv(sm.file("counts.csv"))
 fig.savefig(sm.file("volcano.png"))
-plots = sm.subdir("plots")        # creates subdir, returns Path
+plots = sm.subdir("plots")         # creates subdir, returns Path
 fig2.savefig(plots / "pca.png")
-fig3.savefig(sm / "overview.png") # shorthand
+fig3.savefig(sm / "overview.png")  # shorthand
 ```
 
 ## Pipeline chaining
 
 ```python
-# script_a.py — runs multiple times
+# script_a.py — runs multiple times, each run creates a new session
 sm = SessionManager("results", name="preprocess")
 df_clean.to_csv(sm.file("clean.csv"))
 
-# script_b.py — always picks up script A's latest output
+# script_b.py — always picks up script A's latest output, no folder created
 sm = SessionManager("results", name="preprocess", create=False)
 latest = sm.latest()
-logger.info("Using session: %s", latest)   # log at script level
+logger.info("Using session: %s", latest)
 df = pd.read_csv(latest / "clean.csv")
 
 # scan a different folder
@@ -47,71 +46,50 @@ latest = sm.latest(base_dir="other/results")
 
 ## Logger injection
 
-Pass your application logger so the library's internal events flow through
-your handlers, formatters, and custom levels — all in one log file.
+Pass your application logger so the library's internal events (folder
+created, scan results, errors) flow through your handlers and formatters.
 
 ```python
 sm = SessionManager("results", name="rna_seq", logger=logger)
-# library emits: logger.debug("Session created: results/rna_seq_2026-...")
+# → logger.debug("Session created: results/rna_seq_2026-...")
 ```
 
-`None` (default) is silent — the library never configures its own handlers.
+`None` (default) is fully silent.
 
 ## Temp directory
 
-`in_temp` is a convenience constructor — identical to passing
-`Path(tempfile.gettempdir())` as `base_dir`, without needing to import
-`tempfile` or know the OS-specific temp path.
-
 ```python
 sm = SessionManager.in_temp(name="scratch")
-# → /tmp/scratch_2026-05-26_21-57-00/   (Linux/macOS)
-# → %TEMP%\scratch_2026-05-26_21-57-00\ (Windows)
+# → /tmp/scratch_2026-05-26_22-08-00/   (Linux/macOS)
+# → %TEMP%\scratch_2026-05-26_22-08-00\ (Windows)
 ```
 
-## Custom config
+## Options
 
-Three levels — use only as much as you need:
+All optional, all keyword-only:
 
 ```python
-from session_manager import SessionManager, SessionConfig
-
-# level 1 — zero config
-sm = SessionManager("results", name="run")
-
-# level 2 — tweak one thing inline, no extra import
-sm = SessionManager("results", name="run", separator="--")
-
-# level 3 — full control, reusable across writer and reader
-cfg = SessionConfig(timestamp_format="%Y%m%dT%H%M%S", separator="--")
-sm     = SessionManager("results", name="run", config=cfg)
-latest = sm_reader.latest()         # picks up the same separator automatically
+sm = SessionManager(
+    "results",
+    name="run",
+    separator="--",                    # default "_"
+    timestamp_format="%Y%m%dT%H%M%S", # default "%Y-%m-%d_%H-%M-%S"
+    create=False,                      # default True
+    logger=logger,                     # default None (silent)
+)
 ```
-
-### Separator-aware matching
-
-When a `config` or `separator` is set, `latest()` uses `name--\d` regex
-matching — so `"run"` never accidentally matches `"run_extra_..."`.
-Without them, it falls back to a plain `startswith`.
 
 ## API
 
-### `SessionConfig`
-
-| Field | Default | Description |
-|---|---|---|
-| `timestamp_format` | `"%Y-%m-%d_%H-%M-%S"` | `strftime` format for the timestamp |
-| `separator` | `"_"` | String between *name* and timestamp |
-
-### `SessionManager(base_dir, name="session", *, separator, config, create, logger)`
+### `SessionManager(base_dir, name="session", *, separator, timestamp_format, create, logger)`
 
 | Argument | Default | Description |
 |---|---|---|
 | `base_dir` | required | Parent directory for sessions |
 | `name` | `"session"` | Folder name prefix |
-| `separator` | `None` | Quick separator override (takes precedence over `config`) |
-| `config` | `None` | Full `SessionConfig` object |
-| `create` | `True` | `False` = configured object only, no folder created |
+| `separator` | `"_"` | Between name and timestamp |
+| `timestamp_format` | `"%Y-%m-%d_%H-%M-%S"` | `strftime` format |
+| `create` | `True` | `False` = no folder created (use with `latest()`) |
 | `logger` | `None` | `logging.Logger` for internal events |
 
 | Method / property | Returns | Description |

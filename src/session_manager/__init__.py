@@ -1,3 +1,3 @@
-from .session import SessionConfig, SessionManager
+from .session import SessionManager
 
-__all__ = ["SessionConfig", "SessionManager"]
+__all__ = ["SessionManager"]
