@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "session-manager"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Lightweight timestamped session-directory manager for data-processing scripts"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -28,6 +28,9 @@ dev = ["pytest>=7"]
 [project.urls]
 Homepage = "https://github.com/lukaszplk/session-manager"
 Repository = "https://github.com/lukaszplk/session-manager"
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/session_manager"]

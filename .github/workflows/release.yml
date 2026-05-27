@@ -9,8 +9,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # full history needed for hatch-vcs version inference
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
@@ -24,13 +26,15 @@ jobs:
       id-token: write    # needed for PyPI trusted publishing (no token required)
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # full history needed for hatch-vcs version inference
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Build
         run: |
-          pip install hatchling build
+          pip install hatchling hatch-vcs build
           python -m build
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
